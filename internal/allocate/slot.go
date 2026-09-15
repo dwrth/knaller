@@ -29,3 +29,13 @@ func NextSlot(existing []state.Sandbox) (int, error) {
 		}
 	}
 }
+
+// NextSlotFromStore retrieves all sandboxes from the provided store and returns the lowest unused slot number.
+// It returns an error if listing sandboxes from the store fails.
+func NextSlotFromStore(store *state.Store) (int, error) {
+	existing, err := store.List()
+	if err != nil {
+		return 0, err
+	}
+	return NextSlot(existing)
+}

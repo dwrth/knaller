@@ -66,6 +66,57 @@ func TestNextSlot(t *testing.T) {
 	}
 }
 
+func TestNextSlotFromStore_reusesAfterDelete(t *testing.T) {
+	store := state.New(t.TempDir())
+	s1 := persistedSandbox(t, "a", 1)
+	s2 := persistedSandbox(t, "b", 2)
+	s3 := persistedSandbox(t, "c", 3)
+	for _, sb := range []state.Sandbox{s1, s2, s3} {
+		if err := store.Create(sb); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Delete(s2.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := allocate.NextSlotFromStore(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 2 {
+		t.Fatalf("NextSlotFromStore() = %d, want 2", got)
+	}
+}
+
+func TestNextSlotFromStore_desiredDeletedStillBlocks(t *testing.T) {
+	store := state.New(t.TempDir())
+	sb := persistedSandbox(t, "doomed", 2)
+	sb.DesiredState = state.DesiredDeleted
+	if err := store.Create(sb); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := allocate.NextSlotFromStore(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1 {
+		t.Fatalf("NextSlotFromStore() = %d, want 1 (slot 2 still held)", got)
+	}
+}
+
+func persistedSandbox(t *testing.T, name string, slot int) state.Sandbox {
+	t.Helper()
+	return state.Sandbox{
+		ID:            ulid.Make().String(),
+		Name:          name,
+		Slot:          slot,
+		DesiredState:  state.DesiredStopped,
+		ObservedState: state.ObservedStopped,
+	}
+}
+
 func buildMaxSandboxes() []state.Sandbox {
 	existing := make([]state.Sandbox, 255)
 	for i := range existing {
