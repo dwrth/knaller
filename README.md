@@ -61,23 +61,22 @@ Higher-level sizing and fleet placement are intentionally outside Knaller.
   vmlinux-6.18.44
 
 /var/lib/knaller/state/
-  vm-0001.json
-  vm-0002.json
+  <sandbox-id>.json
 
-/var/lib/knaller/vms/<vm-id>/
+/var/lib/knaller/vms/<sandbox-id>/
   config.json
   rootfs.ext4
   vmlinux
 
-/srv/jailer/firecracker/<vm-id>/   # disposable jail state
+/srv/jailer/firecracker/<sandbox-id>/   # disposable jail state
 
 systemd: knaller@.service, knaller-network@.service
 ```
 
-The current implementation derives UID/GID, network namespaces, and `/30`
-guest/transit networks from deterministic `vm-NNNN` allocations. The next
-runtime stage separates permanent sandbox identity from reusable node-local
-slots while preserving deterministic local resource allocation.
+Sandbox identity is a permanent ULID. Node-local slots (reused after
+state deletion) drive UID/GID, network namespaces, and `/30` guest/transit
+networks. Desired vs observed lifecycle state is persisted for recovery.
+A node-local flock guards mutating operations (CLI wiring comes with create).
 
 ## Roadmap
 
@@ -90,7 +89,7 @@ slots while preserving deterministic local resource allocation.
 - [x] Resource allocation
 - [x] Base-rootfs workflow
 - [x] Firecracker config
-- [ ] Runtime state / lifecycle foundations
+- [x] Runtime state / lifecycle foundations
 - [ ] Generic jailer / supervision
 - [ ] Generic networking / default isolation
 - [ ] create / delete with rollback
