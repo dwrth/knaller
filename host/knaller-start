@@ -1,34 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VM="${1:?VM name required}"
+ID="${1:?sandbox id required}"
 
-case "$VM" in
-    vm1)
-        UID_NUM=1101
-        GID_NUM=1101
-        NETNS="kn-vm1"
-        ;;
-    vm2)
-        UID_NUM=1102
-        GID_NUM=1102
-        NETNS="kn-vm2"
-        ;;
-    *)
-        echo "Unknown VM: $VM" >&2
-        exit 1
-        ;;
-esac
+STATE_DIR="${KNALLER_STATE_DIR:-/var/lib/knaller/state}"
+JAILER_BASE="${KNALLER_JAILER_BASE:-/srv/jailer}"
+
+STATE="$STATE_DIR/$ID.json"
+
+if [[ ! -f "$STATE" ]]; then
+	echo "Missing sandbox state: $STATE" >&2
+	exit 1
+fi
+
+UID_NUM="$(jq -r '.uid' "$STATE")"
+GID_NUM="$(jq -r '.gid' "$STATE")"
+NETNS="$(jq -r '.namespace' "$STATE")"
+
+if [[ -z "$UID_NUM" || "$UID_NUM" == "null" ]]; then
+	echo "State $STATE missing uid" >&2
+	exit 1
+fi
+if [[ -z "$GID_NUM" || "$GID_NUM" == "null" ]]; then
+	echo "State $STATE missing gid" >&2
+	exit 1
+fi
+if [[ -z "$NETNS" || "$NETNS" == "null" ]]; then
+	echo "State $STATE missing namespace" >&2
+	exit 1
+fi
 
 exec /usr/local/bin/jailer \
-    --id "$VM" \
-    --exec-file /usr/local/bin/firecracker \
-    --uid "$UID_NUM" \
-    --gid "$GID_NUM" \
-    --chroot-base-dir /srv/jailer \
-    --netns "/run/netns/$NETNS" \
-    --cgroup-version 2 \
-    --resource-limit no-file=1024 \
-    -- \
-    --api-sock /run/firecracker.socket \
-    --config-file /config.json
+	--id "$ID" \
+	--exec-file /usr/local/bin/firecracker \
+	--uid "$UID_NUM" \
+	--gid "$GID_NUM" \
+	--chroot-base-dir "$JAILER_BASE" \
+	--netns "/run/netns/$NETNS" \
+	--cgroup-version 2 \
+	--resource-limit no-file=1024 \
+	-- \
+	--api-sock /run/firecracker.socket \
+	--config-file /config.json

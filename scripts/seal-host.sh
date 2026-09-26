@@ -10,7 +10,7 @@ fi
 
 reset_guest() {
 	VM="$1"
-	ROOTFS="/var/lib/knaller/$VM/rootfs.ext4"
+	ROOTFS="/var/lib/knaller/vms/$VM/rootfs.ext4"
 	MNT="/mnt/knaller-seal-$VM"
 
 	echo "==> Sealing $VM"

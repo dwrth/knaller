@@ -77,6 +77,8 @@ Sandbox identity is a permanent ULID. Node-local slots (reused after
 state deletion) drive UID/GID, network namespaces, and `/30` guest/transit
 networks. Desired vs observed lifecycle state is persisted for recovery.
 A node-local flock guards mutating operations (CLI wiring comes with create).
+Jailer prepare/start/stop/remove are generic over sandbox ID; host network
+helpers are still static (`vm1`/`vm2`) until generic networking lands.
 
 ## Roadmap
 
@@ -90,7 +92,7 @@ A node-local flock guards mutating operations (CLI wiring comes with create).
 - [x] Base-rootfs workflow
 - [x] Firecracker config
 - [x] Runtime state / lifecycle foundations
-- [ ] Generic jailer / supervision
+- [x] Generic jailer / supervision
 - [ ] Generic networking / default isolation
 - [ ] create / delete with rollback
 - [ ] list / inspect / start / stop

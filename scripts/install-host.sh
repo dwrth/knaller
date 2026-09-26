@@ -209,10 +209,26 @@ install_vm() {
 	GID_NUM="$3"
 	IMAGE="$4"
 	CONFIG="$5"
+	SLOT="$6"
+	NAMESPACE="$7"
 
-	DEST="/var/lib/knaller/$VM"
+	DEST="/var/lib/knaller/vms/$VM"
+	STATE_DIR="/var/lib/knaller/state"
+	STATE="$STATE_DIR/$VM.json"
 
 	echo "==> Installing $VM"
+
+	install -d \
+		-o root \
+		-g root \
+		-m 0755 \
+		/var/lib/knaller/vms
+
+	install -d \
+		-o root \
+		-g root \
+		-m 0755 \
+		"$STATE_DIR"
 
 	install -d \
 		-o root \
@@ -243,6 +259,26 @@ install_vm() {
 
 	chmod 0600 \
 		"$DEST/rootfs.ext4"
+
+	# State consumed by generic knaller-prepare/start (no vm1/vm2 branches).
+	jq -n \
+		--arg id "$VM" \
+		--arg name "$VM" \
+		--argjson slot "$SLOT" \
+		--argjson uid "$UID_NUM" \
+		--argjson gid "$GID_NUM" \
+		--arg namespace "$NAMESPACE" \
+		'{
+			id: $id,
+			name: $name,
+			slot: $slot,
+			uid: $uid,
+			gid: $gid,
+			namespace: $namespace,
+			desired_state: "stopped",
+			observed_state: "requested"
+		}' >"$STATE"
+	chmod 0640 "$STATE"
 }
 
 install_vm_artifacts() {
@@ -278,14 +314,18 @@ install_vm_artifacts() {
 		"$VM1_UID" \
 		"$VM1_GID" \
 		"$VM1_IMAGE" \
-		"$VM1_CONFIG"
+		"$VM1_CONFIG" \
+		1 \
+		kn-vm1
 
 	install_vm \
 		vm2 \
 		"$VM2_UID" \
 		"$VM2_GID" \
 		"$VM2_IMAGE" \
-		"$VM2_CONFIG"
+		"$VM2_CONFIG" \
+		2 \
+		kn-vm2
 }
 
 install_systemd() {
@@ -351,16 +391,20 @@ validate_installation() {
 
 	test -c /dev/kvm
 
-	test -f /var/lib/knaller/vm1/vmlinux
-	test -f /var/lib/knaller/vm1/rootfs.ext4
-	test -f /var/lib/knaller/vm1/config.json
+	test -f /var/lib/knaller/vms/vm1/vmlinux
+	test -f /var/lib/knaller/vms/vm1/rootfs.ext4
+	test -f /var/lib/knaller/vms/vm1/config.json
+	test -f /var/lib/knaller/state/vm1.json
 
-	test -f /var/lib/knaller/vm2/vmlinux
-	test -f /var/lib/knaller/vm2/rootfs.ext4
-	test -f /var/lib/knaller/vm2/config.json
+	test -f /var/lib/knaller/vms/vm2/vmlinux
+	test -f /var/lib/knaller/vms/vm2/rootfs.ext4
+	test -f /var/lib/knaller/vms/vm2/config.json
+	test -f /var/lib/knaller/state/vm2.json
 
-	jq empty /var/lib/knaller/vm1/config.json
-	jq empty /var/lib/knaller/vm2/config.json
+	jq empty /var/lib/knaller/vms/vm1/config.json
+	jq empty /var/lib/knaller/vms/vm2/config.json
+	jq -e '.uid and .gid and .namespace' /var/lib/knaller/state/vm1.json >/dev/null
+	jq -e '.uid and .gid and .namespace' /var/lib/knaller/state/vm2.json >/dev/null
 
 	systemctl is-enabled knaller-host-network.service
 	systemctl is-enabled knaller@vm1.service

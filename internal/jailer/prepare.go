@@ -13,7 +13,7 @@ import (
 	"github.com/dwrth/knaller/internal/state"
 )
 
-// ErrRunning is returned when Prepare or Start finds a live Firecracker process for the jail.
+// ErrRunning is returned when Prepare, Start, or Remove finds a live Firecracker process for the jail.
 var ErrRunning = errors.New("jailer: sandbox appears to be running")
 
 // Prepare rebuilds the disposable jail chroot for sandbox from durable artifacts.

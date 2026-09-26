@@ -34,27 +34,35 @@ check \
 
 check \
 	"VM1 rootfs installed" \
-	test -f /var/lib/knaller/vm1/rootfs.ext4
+	test -f /var/lib/knaller/vms/vm1/rootfs.ext4
 
 check \
 	"VM2 rootfs installed" \
-	test -f /var/lib/knaller/vm2/rootfs.ext4
+	test -f /var/lib/knaller/vms/vm2/rootfs.ext4
 
 check \
 	"VM1 kernel installed" \
-	test -f /var/lib/knaller/vm1/vmlinux
+	test -f /var/lib/knaller/vms/vm1/vmlinux
 
 check \
 	"VM2 kernel installed" \
-	test -f /var/lib/knaller/vm2/vmlinux
+	test -f /var/lib/knaller/vms/vm2/vmlinux
 
 check \
 	"VM1 config valid" \
-	jq empty /var/lib/knaller/vm1/config.json
+	jq empty /var/lib/knaller/vms/vm1/config.json
 
 check \
 	"VM2 config valid" \
-	jq empty /var/lib/knaller/vm2/config.json
+	jq empty /var/lib/knaller/vms/vm2/config.json
+
+check \
+	"VM1 state present" \
+	jq -e '.uid and .gid and .namespace' /var/lib/knaller/state/vm1.json
+
+check \
+	"VM2 state present" \
+	jq -e '.uid and .gid and .namespace' /var/lib/knaller/state/vm2.json
 
 check \
 	"Host network enabled" \
@@ -77,12 +85,12 @@ EXPECTED_KERNEL="$(
 )"
 
 VM1_KERNEL="$(
-	sha256sum /var/lib/knaller/vm1/vmlinux |
+	sha256sum /var/lib/knaller/vms/vm1/vmlinux |
 		awk '{print $1}'
 )"
 
 VM2_KERNEL="$(
-	sha256sum /var/lib/knaller/vm2/vmlinux |
+	sha256sum /var/lib/knaller/vms/vm2/vmlinux |
 		awk '{print $1}'
 )"
 

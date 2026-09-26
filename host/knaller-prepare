@@ -1,48 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VM="${1:?VM name required}"
+ID="${1:?sandbox id required}"
 
-case "$VM" in
-    vm1)
-        UID_NUM=1101
-        GID_NUM=1101
-        ;;
-    vm2)
-        UID_NUM=1102
-        GID_NUM=1102
-        ;;
-    *)
-        echo "Unknown VM: $VM" >&2
-        exit 1
-        ;;
-esac
+STATE_DIR="${KNALLER_STATE_DIR:-/var/lib/knaller/state}"
+SANDBOX_DIR="${KNALLER_SANDBOX_DIR:-/var/lib/knaller/vms}"
+JAILER_BASE="${KNALLER_JAILER_BASE:-/srv/jailer}"
 
-SOURCE="/var/lib/knaller/$VM"
-# Jailer places chroots under <chroot-base>/<exec-file-basename>/<id>.
-JAIL_BASE="/srv/jailer/firecracker/$VM"
+STATE="$STATE_DIR/$ID.json"
+SOURCE="$SANDBOX_DIR/$ID"
+JAIL_BASE="$JAILER_BASE/firecracker/$ID"
 ROOT="$JAIL_BASE/root"
+PIDFILE="$ROOT/firecracker.pid"
+
+if [[ ! -f "$STATE" ]]; then
+	echo "Missing sandbox state: $STATE" >&2
+	exit 1
+fi
+
+if [[ -f "$PIDFILE" ]]; then
+	PID="$(tr -d '[:space:]' <"$PIDFILE" || true)"
+	if [[ -n "$PID" ]] && kill -0 "$PID" 2>/dev/null; then
+		echo "Refusing prepare: sandbox $ID appears to be running (pid $PID)" >&2
+		exit 1
+	fi
+fi
 
 for file in vmlinux rootfs.ext4 config.json; do
-    if [[ ! -f "$SOURCE/$file" ]]; then
-        echo "Missing $SOURCE/$file" >&2
-        exit 1
-    fi
+	if [[ ! -f "$SOURCE/$file" ]]; then
+		echo "Missing $SOURCE/$file" >&2
+		exit 1
+	fi
 done
 
 rm -rf "$JAIL_BASE"
 
 install -d -o root -g root -m 0755 \
-    /srv/jailer/firecracker
+	"$JAILER_BASE/firecracker"
 
-install -d -o root -g root -m 0755 \
-    "$JAIL_BASE"
+install -d -o root -g root -m 0700 \
+	"$JAIL_BASE"
 
-install -d -o root -g root -m 0755 \
-    "$ROOT"
+install -d -o root -g root -m 0700 \
+	"$ROOT"
 
 ln "$SOURCE/vmlinux" "$ROOT/vmlinux"
 ln "$SOURCE/rootfs.ext4" "$ROOT/rootfs.ext4"
 ln "$SOURCE/config.json" "$ROOT/config.json"
 
-echo "Prepared jail for $VM as ${UID_NUM}:${GID_NUM}"
+UID_NUM="$(jq -r '.uid' "$STATE")"
+GID_NUM="$(jq -r '.gid' "$STATE")"
+echo "Prepared jail for $ID as ${UID_NUM}:${GID_NUM}"
