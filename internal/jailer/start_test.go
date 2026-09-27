@@ -77,7 +77,7 @@ func TestStartFailsWhenRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Point NetNSPath check out of the way by also needing running check first.
-	// ensureStopped runs before netns check; live pidfile is enough.
+	// EnsureStopped runs before netns check; live pidfile is enough.
 	if err := os.MkdirAll(filepath.Dir(in.PidFile), 0o700); err != nil {
 		t.Fatal(err)
 	}

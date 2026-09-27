@@ -13,7 +13,7 @@ import (
 	"github.com/dwrth/knaller/internal/state"
 )
 
-// ErrRunning is returned when Prepare, Start, or Remove finds a live Firecracker process for the jail.
+// ErrRunning is returned when a live Firecracker process is recorded in the jail pidfile.
 var ErrRunning = errors.New("jailer: sandbox appears to be running")
 
 // Prepare rebuilds the disposable jail chroot for sandbox from durable artifacts.
@@ -24,7 +24,7 @@ func Prepare(cfg *config.Config, sandbox state.Sandbox) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureStopped(in); err != nil {
+	if err := EnsureStopped(in); err != nil {
 		return err
 	}
 	if err := ensureArtifacts(in); err != nil {
@@ -61,7 +61,8 @@ func Prepare(cfg *config.Config, sandbox state.Sandbox) error {
 	return nil
 }
 
-func ensureStopped(in Inputs) error {
+// EnsureStopped returns ErrRunning if the jail pidfile names a live process.
+func EnsureStopped(in Inputs) error {
 	data, err := os.ReadFile(in.PidFile)
 	if err != nil {
 		if os.IsNotExist(err) {

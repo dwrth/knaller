@@ -27,11 +27,11 @@ func TestConfig_Validate(t *testing.T) {
 			Kernel:     kernel,
 		},
 		Scheduler: config.Scheduler{
-			HostMemoryReserveMiB: 256,
-			CPUOvercommitRatio:   2.0,
-			MinimumSandboxMemoryMiB:   128,
-			MaximumSandboxMemoryMiB:   512,
-			MaximumSandboxVCPUs:       4,
+			HostMemoryReserveMiB:    256,
+			CPUOvercommitRatio:      2.0,
+			MinimumSandboxMemoryMiB: 128,
+			MaximumSandboxMemoryMiB: 512,
+			MaximumSandboxVCPUs:     4,
 		},
 		Network: config.Network{
 			GuestCidr:   "10.0.0.0/24",

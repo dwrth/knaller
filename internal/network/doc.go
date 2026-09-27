@@ -3,6 +3,6 @@
 // Setup/Teardown/Status operate on one sandbox from persisted state.
 // EnsureHost configures node-wide forwarding and nft policy from config.
 //
-// Setup must eventually refuse if the sandbox Firecracker process is still
-// alive; callers should Stop first. Enforcement lands with real dataplane Setup.
+// Setup and Teardown refuse if the jail pidfile names a live process
+// (via jailer.EnsureStopped); callers must Stop first.
 package network

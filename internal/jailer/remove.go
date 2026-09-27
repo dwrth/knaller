@@ -16,7 +16,7 @@ func Remove(cfg *config.Config, sandbox state.Sandbox) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureStopped(in); err != nil {
+	if err := EnsureStopped(in); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(in.JailDir); err != nil {

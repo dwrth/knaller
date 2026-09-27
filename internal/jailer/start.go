@@ -50,7 +50,7 @@ func Argv(in Inputs) []string {
 }
 
 func ready(in Inputs) error {
-	if err := ensureStopped(in); err != nil {
+	if err := EnsureStopped(in); err != nil {
 		return err
 	}
 	if _, err := os.Stat(in.NetNSPath); err != nil {

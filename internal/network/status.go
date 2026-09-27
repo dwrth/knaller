@@ -1,9 +1,15 @@
 package network
 
-import "github.com/dwrth/knaller/internal/state"
+import (
+	"errors"
+
+	"github.com/dwrth/knaller/internal/state"
+)
+
+// ErrNotImplemented is returned when Status observation is not wired yet.
+var ErrNotImplemented = errors.New("network: not implemented")
 
 // Status reports observed network resources for sandbox.
-// Observation is not implemented until dataplane Setup exists.
 func Status(sandbox state.Sandbox) error {
 	if err := validate(sandbox); err != nil {
 		return err
