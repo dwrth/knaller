@@ -1,18 +1,35 @@
 package network
 
 import (
-	"errors"
+	"strings"
 
 	"github.com/dwrth/knaller/internal/state"
 )
 
-// ErrNotImplemented is returned when Status observation is not wired yet.
-var ErrNotImplemented = errors.New("network: not implemented")
+// Report is the observed presence of per-sandbox dataplane resources on the host.
+type Report struct {
+	NetNS      bool
+	HostVeth   bool
+	GuestRoute bool
+}
 
-// Status reports observed network resources for sandbox.
-func Status(sandbox state.Sandbox) error {
+// Present reports whether any tracked resource still exists.
+func (r Report) Present() bool {
+	return r.NetNS || r.HostVeth || r.GuestRoute
+}
+
+// Status probes netns, host veth, and guest route for sandbox.
+func Status(sandbox state.Sandbox) (Report, error) {
 	if err := validate(sandbox); err != nil {
-		return err
+		return Report{}, err
 	}
-	return ErrNotImplemented
+
+	var r Report
+	r.NetNS = run("ip", "netns", "exec", sandbox.Namespace, "true") == nil
+	r.HostVeth = run("ip", "link", "show", sandbox.HostVeth) == nil
+
+	out, err := runOut("ip", "route", "show", sandbox.GuestSubnet)
+	r.GuestRoute = err == nil && strings.TrimSpace(out) != ""
+
+	return r, nil
 }

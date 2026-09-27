@@ -31,6 +31,23 @@ func validSandbox() state.Sandbox {
 	}
 }
 
+func sandbox2() state.Sandbox {
+	return state.Sandbox{
+		ID:            "01HTESTSANDBOX000000000002",
+		Namespace:     "kn-sandbox-0002",
+		HostVeth:      "kn2-host",
+		NSVeth:        "kn2-ns",
+		TAP:           "tap0",
+		GuestSubnet:   "172.16.2.0/30",
+		GatewayIP:     "172.16.2.1",
+		TransitHostIP: "10.200.2.1",
+		TransitNSIP:   "10.200.2.2",
+		TransitSubnet: "10.200.2.0/30",
+		UID:           12002,
+		GID:           12002,
+	}
+}
+
 func testConfig(t *testing.T) *config.Config {
 	t.Helper()
 	dir := t.TempDir()
@@ -40,9 +57,11 @@ func testConfig(t *testing.T) *config.Config {
 	}
 }
 
+func okRun(string, ...string) (string, error) { return "", nil }
+
 func TestValidateRequiredFields(t *testing.T) {
 	cfg := testConfig(t)
-	restore := network.SetExecRunForTest(func(string, ...string) error { return nil })
+	restore := network.SetExecRunForTest(okRun)
 	defer restore()
 
 	tests := []struct {
@@ -95,9 +114,9 @@ func TestSetupCommandSequence(t *testing.T) {
 	sb := validSandbox()
 
 	var got []string
-	restore := network.SetExecRunForTest(func(name string, args ...string) error {
+	restore := network.SetExecRunForTest(func(name string, args ...string) (string, error) {
 		got = append(got, strings.Join(append([]string{name}, args...), " "))
-		return nil
+		return "", nil
 	})
 	defer restore()
 
@@ -106,11 +125,9 @@ func TestSetupCommandSequence(t *testing.T) {
 	}
 
 	want := []string{
-		// Teardown first
 		"ip route del 172.16.1.0/30",
 		"ip link del kn1-host",
 		"ip netns del kn-sandbox-0001",
-		// create
 		"ip netns add kn-sandbox-0001",
 		"ip netns exec kn-sandbox-0001 ip link set lo up",
 		"ip link add kn1-host type veth peer name kn1-ns",
@@ -146,9 +163,9 @@ func TestSetupCallsTeardownBeforeCreate(t *testing.T) {
 	})
 	defer restoreTeardown()
 
-	restoreRun := network.SetExecRunForTest(func(string, ...string) error {
+	restoreRun := network.SetExecRunForTest(func(string, ...string) (string, error) {
 		order = append(order, "create-step")
-		return nil
+		return "", nil
 	})
 	defer restoreRun()
 
@@ -189,12 +206,12 @@ func TestSetupBestEffortTeardownOnCreateFailure(t *testing.T) {
 	defer restoreTeardown()
 
 	n := 0
-	restoreRun := network.SetExecRunForTest(func(string, ...string) error {
+	restoreRun := network.SetExecRunForTest(func(string, ...string) (string, error) {
 		n++
 		if n == 3 {
-			return errors.New("boom")
+			return "", errors.New("boom")
 		}
-		return nil
+		return "", nil
 	})
 	defer restoreRun()
 
@@ -243,8 +260,8 @@ func TestTeardownRefusesWhenRunning(t *testing.T) {
 
 func TestTeardownIgnoresMissingResources(t *testing.T) {
 	cfg := testConfig(t)
-	restore := network.SetExecRunForTest(func(string, ...string) error {
-		return errors.New("not found")
+	restore := network.SetExecRunForTest(func(string, ...string) (string, error) {
+		return "", errors.New("not found")
 	})
 	defer restore()
 
@@ -253,10 +270,151 @@ func TestTeardownIgnoresMissingResources(t *testing.T) {
 	}
 }
 
-func TestStatusNotImplemented(t *testing.T) {
-	err := network.Status(validSandbox())
-	if !errors.Is(err, network.ErrNotImplemented) {
-		t.Fatalf("Status() = %v, want ErrNotImplemented", err)
+func TestSetupTwice(t *testing.T) {
+	cfg := testConfig(t)
+	restore := network.SetExecRunForTest(okRun)
+	defer restore()
+
+	sb := validSandbox()
+	if err := network.Setup(cfg, sb); err != nil {
+		t.Fatalf("Setup #1 = %v", err)
+	}
+	if err := network.Setup(cfg, sb); err != nil {
+		t.Fatalf("Setup #2 = %v", err)
+	}
+}
+
+func TestTeardownTwice(t *testing.T) {
+	cfg := testConfig(t)
+	restore := network.SetExecRunForTest(okRun)
+	defer restore()
+
+	sb := validSandbox()
+	if err := network.Teardown(cfg, sb); err != nil {
+		t.Fatalf("Teardown #1 = %v", err)
+	}
+	if err := network.Teardown(cfg, sb); err != nil {
+		t.Fatalf("Teardown #2 = %v", err)
+	}
+}
+
+func TestTeardownIsolation(t *testing.T) {
+	cfg := testConfig(t)
+	a, b := validSandbox(), sandbox2()
+
+	var got []string
+	restore := network.SetExecRunForTest(func(name string, args ...string) (string, error) {
+		got = append(got, strings.Join(append([]string{name}, args...), " "))
+		return "", nil
+	})
+	defer restore()
+
+	if err := network.Teardown(cfg, a); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got, "\n")
+	for _, leak := range []string{b.Namespace, b.HostVeth, b.GuestSubnet, b.NSVeth} {
+		if strings.Contains(joined, leak) {
+			t.Fatalf("Teardown(A) touched B resource %q:\n%s", leak, joined)
+		}
+	}
+	for _, need := range []string{a.Namespace, a.HostVeth, a.GuestSubnet} {
+		if !strings.Contains(joined, need) {
+			t.Fatalf("Teardown(A) missing %q:\n%s", need, joined)
+		}
+	}
+}
+
+func TestTeardownPartialDebrisStillDeletesAll(t *testing.T) {
+	cfg := testConfig(t)
+	var got []string
+	restore := network.SetExecRunForTest(func(name string, args ...string) (string, error) {
+		cmd := strings.Join(append([]string{name}, args...), " ")
+		got = append(got, cmd)
+		// Simulate only netns still present: route/veth delete fail, netns delete ok.
+		if strings.Contains(cmd, "route del") || strings.Contains(cmd, "link del") {
+			return "", errors.New("missing")
+		}
+		return "", nil
+	})
+	defer restore()
+
+	if err := network.Teardown(cfg, validSandbox()); err != nil {
+		t.Fatalf("Teardown() = %v, want nil", err)
+	}
+	want := []string{
+		"ip route del 172.16.1.0/30",
+		"ip link del kn1-host",
+		"ip netns del kn-sandbox-0001",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("command[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestStatusAbsent(t *testing.T) {
+	restore := network.SetExecRunForTest(func(string, ...string) (string, error) {
+		return "", errors.New("missing")
+	})
+	defer restore()
+
+	got, err := network.Status(validSandbox())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Present() {
+		t.Fatalf("Status = %+v, want all absent", got)
+	}
+}
+
+func TestStatusPresent(t *testing.T) {
+	restore := network.SetExecRunForTest(func(name string, args ...string) (string, error) {
+		cmd := strings.Join(append([]string{name}, args...), " ")
+		if strings.HasPrefix(cmd, "ip route show") {
+			return "172.16.1.0/30 via 10.200.1.2 dev kn1-host\n", nil
+		}
+		return "", nil
+	})
+	defer restore()
+
+	got, err := network.Status(validSandbox())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := network.Report{NetNS: true, HostVeth: true, GuestRoute: true}
+	if got != want {
+		t.Fatalf("Status = %+v, want %+v", got, want)
+	}
+}
+
+func TestStatusPartialDebris(t *testing.T) {
+	restore := network.SetExecRunForTest(func(name string, args ...string) (string, error) {
+		cmd := strings.Join(append([]string{name}, args...), " ")
+		switch {
+		case strings.HasPrefix(cmd, "ip netns exec"):
+			return "", nil // netns present
+		case strings.HasPrefix(cmd, "ip link show"):
+			return "", errors.New("not found")
+		case strings.HasPrefix(cmd, "ip route show"):
+			return "172.16.1.0/30 via 10.200.1.2 dev kn1-host\n", nil
+		default:
+			return "", errors.New("unexpected: " + cmd)
+		}
+	})
+	defer restore()
+
+	got, err := network.Status(validSandbox())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := network.Report{NetNS: true, HostVeth: false, GuestRoute: true}
+	if got != want {
+		t.Fatalf("Status = %+v, want %+v", got, want)
 	}
 }
 
