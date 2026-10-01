@@ -419,7 +419,91 @@ func TestStatusPartialDebris(t *testing.T) {
 }
 
 func TestEnsureHost(t *testing.T) {
-	if err := network.EnsureHost(&config.Config{}); err != nil {
-		t.Fatalf("EnsureHost() = %v, want nil", err)
+	cfg := &config.Config{Network: config.Network{GuestCidr: "172.16.0.0/16"}}
+
+	var got []string
+	restore := network.SetExecRunForTest(func(name string, args ...string) (string, error) {
+		cmd := strings.Join(append([]string{name}, args...), " ")
+		got = append(got, cmd)
+		if cmd == "ip route show default" {
+			return "default via 192.0.2.1 dev eth0 proto dhcp\n", nil
+		}
+		return "", nil
+	})
+	defer restore()
+
+	if err := network.EnsureHost(cfg); err != nil {
+		t.Fatalf("EnsureHost() = %v", err)
+	}
+
+	want := []string{
+		"ip route show default",
+		"sysctl -q -w net.ipv4.ip_forward=1",
+		"nft delete table inet knaller_filter",
+		"nft delete table ip knaller_nat",
+		"nft add table inet knaller_filter",
+		"nft add chain inet knaller_filter forward { type filter hook forward priority filter; policy accept; }",
+		"nft add rule inet knaller_filter forward ip saddr 172.16.0.0/16 ip daddr 169.254.169.254 counter drop",
+		"nft add rule inet knaller_filter forward ip saddr 172.16.0.0/16 ip daddr 172.16.0.0/16 counter drop",
+		"nft add table ip knaller_nat",
+		"nft add chain ip knaller_nat postrouting { type nat hook postrouting priority srcnat; policy accept; }",
+		"nft add rule ip knaller_nat postrouting oifname eth0 ip saddr 172.16.0.0/16 counter masquerade",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d commands, want %d\ngot:\n%s", len(got), len(want), strings.Join(got, "\n"))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("command[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestEnsureHostRequiresGuestCidr(t *testing.T) {
+	err := network.EnsureHost(&config.Config{})
+	if err == nil || !strings.Contains(err.Error(), "guest_cidr") {
+		t.Fatalf("EnsureHost() = %v, want guest_cidr error", err)
+	}
+}
+
+func TestEnsureHostRequiresUplink(t *testing.T) {
+	cfg := &config.Config{Network: config.Network{GuestCidr: "172.16.0.0/16"}}
+	restore := network.SetExecRunForTest(func(name string, args ...string) (string, error) {
+		cmd := strings.Join(append([]string{name}, args...), " ")
+		if cmd == "ip route show default" {
+			return "", nil
+		}
+		return "", nil
+	})
+	defer restore()
+
+	err := network.EnsureHost(cfg)
+	if err == nil || !strings.Contains(err.Error(), "uplink") {
+		t.Fatalf("EnsureHost() = %v, want uplink error", err)
+	}
+}
+
+func TestTeardownHost(t *testing.T) {
+	var got []string
+	restore := network.SetExecRunForTest(func(name string, args ...string) (string, error) {
+		got = append(got, strings.Join(append([]string{name}, args...), " "))
+		return "", errors.New("missing")
+	})
+	defer restore()
+
+	if err := network.TeardownHost(&config.Config{}); err != nil {
+		t.Fatalf("TeardownHost() = %v, want nil", err)
+	}
+	want := []string{
+		"nft delete table inet knaller_filter",
+		"nft delete table ip knaller_nat",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("command[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
