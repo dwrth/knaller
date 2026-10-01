@@ -1,10 +1,11 @@
 [Unit]
-Description=Knaller network for %i
+Description=Knaller network for sandbox %i
 Requires=knaller-host-network.service
 After=knaller-host-network.service
 
 [Service]
 Type=oneshot
+# %i is the sandbox id (state file /var/lib/knaller/state/%i.json).
 ExecStart=/usr/local/sbin/knaller-vm-network %i start
 ExecStop=/usr/local/sbin/knaller-vm-network %i stop
 RemainAfterExit=yes

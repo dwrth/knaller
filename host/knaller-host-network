@@ -1,82 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-UPLINK="$(ip route show default | awk '/default/ {print $5; exit}')"
+ACTION="${1:?Action required}"
 
-if [[ -z "$UPLINK" ]]; then
-    echo "Unable to determine uplink" >&2
-    exit 1
-fi
+CONFIG="${KNALLER_CONFIG:-/etc/knaller/config.yaml}"
+KNALLER_BIN="${KNALLER_BIN:-/usr/local/bin/knaller}"
 
-start() {
-    echo "Configuring knaller host networking via $UPLINK"
-
-    sysctl -q -w net.ipv4.ip_forward=1
-
-    # Only touch tables owned by us.
-    nft delete table inet knaller_filter 2>/dev/null || true
-    nft delete table ip knaller_nat 2>/dev/null || true
-
-    nft add table inet knaller_filter
-    nft 'add chain inet knaller_filter forward { type filter hook forward priority filter; policy accept; }'
-
-    nft add rule inet knaller_filter forward \
-        ip saddr 172.16.1.0/30 \
-        ip daddr 169.254.169.254 \
-        counter drop
-
-    nft add rule inet knaller_filter forward \
-        ip saddr 172.16.2.0/30 \
-        ip daddr 169.254.169.254 \
-        counter drop
-
-    nft add table ip knaller_nat
-    nft 'add chain ip knaller_nat postrouting { type nat hook postrouting priority srcnat; policy accept; }'
-
-    nft add rule ip knaller_nat postrouting \
-        oifname "$UPLINK" \
-        ip saddr 172.16.1.0/30 \
-        counter masquerade
-
-    nft add rule ip knaller_nat postrouting \
-        oifname "$UPLINK" \
-        ip saddr 172.16.2.0/30 \
-        counter masquerade
-
-    echo "Knaller host networking ready"
-}
-
-stop() {
-    nft delete table inet knaller_filter 2>/dev/null || true
-    nft delete table ip knaller_nat 2>/dev/null || true
-
-    # Deliberately don't force ip_forward back to 0.
-}
-
-status() {
-    echo "=== UPLINK ==="
-    echo "$UPLINK"
-
-    echo
-    sysctl net.ipv4.ip_forward
-
-    echo
-    nft list table inet knaller_filter 2>/dev/null || true
-
-    echo
-    nft list table ip knaller_nat 2>/dev/null || true
-}
-
-case "${1:-}" in
-    start) start ;;
-    stop) stop ;;
-    restart)
-        stop
-        start
-        ;;
-    status) status ;;
-    *)
-        echo "Usage: $0 {start|stop|restart|status}" >&2
-        exit 2
-        ;;
+case "$ACTION" in
+	start)
+		exec "$KNALLER_BIN" network ensure-host --config "$CONFIG"
+		;;
+	stop)
+		exec "$KNALLER_BIN" network teardown-host --config "$CONFIG"
+		;;
+	restart)
+		"$KNALLER_BIN" network teardown-host --config "$CONFIG" || true
+		exec "$KNALLER_BIN" network ensure-host --config "$CONFIG"
+		;;
+	status)
+		echo "=== knaller host network ==="
+		echo "config: $CONFIG"
+		sysctl net.ipv4.ip_forward 2>/dev/null || true
+		echo
+		nft list table inet knaller_filter 2>/dev/null || true
+		echo
+		nft list table ip knaller_nat 2>/dev/null || true
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|status}" >&2
+		exit 2
+		;;
 esac

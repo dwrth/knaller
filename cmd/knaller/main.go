@@ -36,6 +36,8 @@ func run(args []string) int {
 		return runConfig(args[1:])
 	case "create":
 		return runCreate(args[1:])
+	case "network":
+		return runNetwork(args[1:])
 	case "list", "inspect", "start", "stop", "delete":
 		fmt.Fprintf(os.Stderr, "knaller %s: not implemented yet\n", args[0])
 		return 1
@@ -200,6 +202,7 @@ Commands:
   capacity   Show host and sandbox resource capacity
   config     Manage configuration
   create     Create a new sandbox
+  network    Manage host and per-sandbox networking
   list       List sandboxes
   inspect    Show details for a sandbox
   start      Start a sandbox

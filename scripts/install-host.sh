@@ -16,6 +16,8 @@ source "$REPO/artifacts/kernel/manifest.env"
 
 FC_BIN="$REPO/build/artifacts/firecracker"
 JAILER_BIN="$REPO/build/artifacts/jailer"
+KNALLER_BIN_ARTIFACT="$REPO/build/artifacts/knaller"
+KNALLER_BIN_FALLBACK="$REPO/bin/knaller"
 KERNEL="$REPO/artifacts/kernel/$KERNEL_FILENAME"
 
 VM1_IMAGE="$REPO/build/guests/vm1.ext4"
@@ -38,6 +40,14 @@ verify_artifacts() {
 
 	verify_file "$FC_BIN"
 	verify_file "$JAILER_BIN"
+
+	if [[ -x "$KNALLER_BIN_ARTIFACT" ]]; then
+		KNALLER_BIN="$KNALLER_BIN_ARTIFACT"
+	elif [[ -x "$KNALLER_BIN_FALLBACK" ]]; then
+		KNALLER_BIN="$KNALLER_BIN_FALLBACK"
+	else
+		die "knaller CLI missing; build with: go build -o build/artifacts/knaller ./cmd/knaller"
+	fi
 	verify_file "$KERNEL"
 
 	verify_file "$VM1_IMAGE"
@@ -139,7 +149,7 @@ install_accounts() {
 }
 
 install_binaries() {
-	echo "==> Installing Firecracker binaries"
+	echo "==> Installing Firecracker and knaller binaries"
 
 	install \
 		-o root \
@@ -155,8 +165,31 @@ install_binaries() {
 		"$JAILER_BIN" \
 		/usr/local/bin/jailer
 
+	install \
+		-o root \
+		-g root \
+		-m 0755 \
+		"$KNALLER_BIN" \
+		/usr/local/bin/knaller
+
+	install -d \
+		-o root \
+		-g root \
+		-m 0755 \
+		/etc/knaller
+
+	if [[ ! -f /etc/knaller/config.yaml ]]; then
+		install \
+			-o root \
+			-g root \
+			-m 0644 \
+			"$REPO/config/knaller.example.yaml" \
+			/etc/knaller/config.yaml
+	fi
+
 	/usr/local/bin/firecracker --version
 	/usr/local/bin/jailer --version
+	/usr/local/bin/knaller help >/dev/null
 }
 
 install_host_helpers() {
@@ -382,6 +415,8 @@ validate_installation() {
 
 	test -x /usr/local/bin/firecracker
 	test -x /usr/local/bin/jailer
+	test -x /usr/local/bin/knaller
+	test -f /etc/knaller/config.yaml
 
 	test -x /usr/local/sbin/knaller-host-network
 	test -x /usr/local/sbin/knaller-vm-network

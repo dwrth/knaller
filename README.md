@@ -16,14 +16,19 @@ node-local runtime. See the roadmap for current progress.
 ## CLI
 
 ```text
-knaller capacity          # host resources and what is still free
-knaller create            # provision a new sandbox
-knaller list              # running and stopped sandboxes
-knaller inspect <name>    # full sandbox state and paths
-knaller start <name>      # start via systemd
-knaller stop <name>       # graceful shutdown
-knaller delete <name>     # tear down sandbox and storage
-knaller config validate   # check /etc/knaller/config.yaml
+knaller capacity                 # host resources and what is still free
+knaller create                   # provision a new sandbox
+knaller network ensure-host      # host forwarding + nft isolation/NAT
+knaller network teardown-host    # remove Knaller nft tables
+knaller network setup <id>       # per-sandbox netns/veth/TAP/routes
+knaller network teardown <id>    # remove per-sandbox dataplane
+knaller network status <id>      # probe netns / host veth / guest route
+knaller list                     # running and stopped sandboxes
+knaller inspect <name>           # full sandbox state and paths
+knaller start <name>             # start via systemd
+knaller stop <name>              # graceful shutdown
+knaller delete <name>            # tear down sandbox and storage
+knaller config validate          # check /etc/knaller/config.yaml
 ```
 
 Creation examples (target):
@@ -38,14 +43,20 @@ Provisioning clones a shared base rootfs, assigns sandbox-local resources,
 UID/GID, guest and transit subnets, generates Firecracker config, wires
 networking, and persists state for reboot-safe operation.
 
+Host networking (`EnsureHost`) applies to the whole `guest_cidr`: drop cloud
+metadata, block sandbox-to-sandbox forwarding, and MASQUERADE egress on the
+uplink. Per-sandbox `Setup`/`Teardown` build and remove netns, veth, TAP, and
+routes from persisted state. Thin `/usr/local/sbin/knaller-*-network` wrappers
+call the CLI for systemd; those scripts are temporary until a pure Go host path.
+
 Higher-level sizing and fleet placement are intentionally outside Knaller.
 
 ## Repository layout
 
 - `cmd/knaller/` - CLI entrypoint
-- `internal/` - config, capacity, scheduler, state, allocate, storage, ...
+- `internal/` - config, capacity, scheduler, state, allocate, storage, jailer, network, ...
 - `config/` - example host configuration
-- `host/` - jailer helpers, host networking, systemd units
+- `host/` - jailer helpers, thin network wrappers, systemd units
 - `guests/` - legacy static VM configs (`vm1`, `vm2`; replaced by dynamic flow)
 - `scripts/` - image and host build automation
 - `artifacts/` - artifact manifests and checksums
@@ -70,15 +81,16 @@ Higher-level sizing and fleet placement are intentionally outside Knaller.
 
 /srv/jailer/firecracker/<sandbox-id>/   # disposable jail state
 
-systemd: knaller@.service, knaller-network@.service
+systemd: knaller-host-network.service, knaller-network@.service, knaller@.service
 ```
 
 Sandbox identity is a permanent ULID. Node-local slots (reused after
 state deletion) drive UID/GID, network namespaces, and `/30` guest/transit
 networks. Desired vs observed lifecycle state is persisted for recovery.
 A node-local flock guards mutating operations (CLI wiring comes with create).
-Jailer prepare/start/stop/remove are generic over sandbox ID; host network
-helpers are still static (`vm1`/`vm2`) until generic networking lands.
+Jailer prepare/start/stop/remove and network setup/teardown are generic over
+sandbox ID. Host install expects a built `knaller` binary
+(`go build -o build/artifacts/knaller ./cmd/knaller`).
 
 ## Roadmap
 
@@ -93,7 +105,7 @@ helpers are still static (`vm1`/`vm2`) until generic networking lands.
 - [x] Firecracker config
 - [x] Runtime state / lifecycle foundations
 - [x] Generic jailer / supervision
-- [ ] Generic networking / default isolation
+- [x] Generic networking / default isolation
 - [ ] create / delete with rollback
 - [ ] list / inspect / start / stop
 - [ ] Resource enforcement

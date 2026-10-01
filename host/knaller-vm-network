@@ -1,144 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VM="${1:?VM name required}"
+ID="${1:?sandbox id required}"
 ACTION="${2:?Action required}"
 
-case "$VM" in
-    vm1)
-        NS="kn-vm1"
-        HOST_IF="kn1-host"
-        NS_IF="kn1-ns"
-
-        HOST_ADDR="10.200.1.1/30"
-        HOST_IP="10.200.1.1"
-        NS_ADDR="10.200.1.2/30"
-        NS_IP="10.200.1.2"
-
-        GUEST_NET="172.16.1.0/30"
-        TAP_ADDR="172.16.1.1/30"
-
-        KN_UID=1101
-        KN_GID=1101
-        ;;
-
-    vm2)
-        NS="kn-vm2"
-        HOST_IF="kn2-host"
-        NS_IF="kn2-ns"
-
-        HOST_ADDR="10.200.2.1/30"
-        HOST_IP="10.200.2.1"
-        NS_ADDR="10.200.2.2/30"
-        NS_IP="10.200.2.2"
-
-        GUEST_NET="172.16.2.0/30"
-        TAP_ADDR="172.16.2.1/30"
-
-        KN_UID=1102
-        KN_GID=1102
-        ;;
-
-    *)
-        echo "Unknown VM: $VM" >&2
-        exit 1
-        ;;
-esac
-
-start() {
-    echo "Creating network for $VM"
-
-    # Clear stale state for this VM only.
-    ip route del "$GUEST_NET" 2>/dev/null || true
-
-    if ip link show "$HOST_IF" >/dev/null 2>&1; then
-        ip link del "$HOST_IF"
-    fi
-
-    if ip netns list | grep -q "^${NS}\b"; then
-        ip netns del "$NS"
-    fi
-
-    ip netns add "$NS"
-    ip netns exec "$NS" ip link set lo up
-
-    # Transit link between host namespace and VM namespace.
-    ip link add "$HOST_IF" type veth peer name "$NS_IF"
-    ip link set "$NS_IF" netns "$NS"
-
-    ip addr add "$HOST_ADDR" dev "$HOST_IF"
-    ip link set "$HOST_IF" up
-
-    ip netns exec "$NS" ip addr add "$NS_ADDR" dev "$NS_IF"
-    ip netns exec "$NS" ip link set "$NS_IF" up
-
-    # TAP presented to Firecracker.
-    ip netns exec "$NS" \
-        ip tuntap add dev tap0 mode tap user "$KN_UID" group "$KN_GID"
-
-    ip netns exec "$NS" ip addr add "$TAP_ADDR" dev tap0
-    ip netns exec "$NS" ip link set tap0 up
-
-    # Guest packets must route TAP -> veth.
-    ip netns exec "$NS" sysctl -q -w net.ipv4.ip_forward=1
-
-    ip netns exec "$NS" \
-        ip route replace default via "$HOST_IP" dev "$NS_IF"
-
-    # Host route back to guest.
-    ip route replace "$GUEST_NET" via "$NS_IP" dev "$HOST_IF"
-
-    echo "$VM network ready"
-}
-
-stop() {
-    echo "Removing network for $VM"
-
-    ip route del "$GUEST_NET" 2>/dev/null || true
-
-    if ip link show "$HOST_IF" >/dev/null 2>&1; then
-        ip link del "$HOST_IF"
-    fi
-
-    if ip netns list | grep -q "^${NS}\b"; then
-        ip netns del "$NS"
-    fi
-}
-
-status() {
-    echo "=== $VM ==="
-
-    echo
-    echo "Namespace:"
-    ip netns list | grep "^${NS}\b" || true
-
-    echo
-    echo "Host interface:"
-    ip addr show "$HOST_IF" 2>/dev/null || true
-
-    echo
-    echo "Namespace interfaces:"
-    ip netns exec "$NS" ip addr 2>/dev/null || true
-
-    echo
-    echo "Namespace routes:"
-    ip netns exec "$NS" ip route 2>/dev/null || true
-
-    echo
-    echo "Host guest route:"
-    ip route show "$GUEST_NET"
-}
+CONFIG="${KNALLER_CONFIG:-/etc/knaller/config.yaml}"
+KNALLER_BIN="${KNALLER_BIN:-/usr/local/bin/knaller}"
 
 case "$ACTION" in
-    start) start ;;
-    stop) stop ;;
-    restart)
-        stop
-        start
-        ;;
-    status) status ;;
-    *)
-        echo "Unknown action: $ACTION" >&2
-        exit 2
-        ;;
+	start)
+		exec "$KNALLER_BIN" network setup --config "$CONFIG" "$ID"
+		;;
+	stop)
+		exec "$KNALLER_BIN" network teardown --config "$CONFIG" "$ID"
+		;;
+	restart)
+		"$KNALLER_BIN" network teardown --config "$CONFIG" "$ID" || true
+		exec "$KNALLER_BIN" network setup --config "$CONFIG" "$ID"
+		;;
+	status)
+		exec "$KNALLER_BIN" network status --config "$CONFIG" "$ID"
+		;;
+	*)
+		echo "Usage: $0 <sandbox-id> {start|stop|restart|status}" >&2
+		exit 2
+		;;
 esac
