@@ -27,26 +27,37 @@ type Manager struct {
 	lock    *lock.Lock
 	storage *storage.Manager
 
-	collect     func(*config.Config) (capacity.Capacity, error)
-	stopRuntime func(*config.Config, state.Sandbox) error
-	stopUnit    func(unit string) error
-	teardownNet func(*config.Config, state.Sandbox) error
-	removeJail  func(*config.Config, state.Sandbox) error
-	removeAcct  func(name string) error
+	collect          func(*config.Config) (capacity.Capacity, error)
+	ensureAcct       func(name string, uid, gid int) error
+	ensureHost       func(*config.Config) error
+	provisionStorage func(state.Sandbox) error
+	startUnit        func(unit string) error
+	waitReady        func(*config.Config, state.Sandbox) error
+	stopRuntime      func(*config.Config, state.Sandbox) error
+	stopUnit         func(unit string) error
+	teardownNet      func(*config.Config, state.Sandbox) error
+	removeJail       func(*config.Config, state.Sandbox) error
+	removeAcct       func(name string) error
 }
 
 // New returns a Manager using cfg and a lock file under the state directory.
 func New(cfg *config.Config) *Manager {
+	store := storage.New(cfg)
 	return &Manager{
-		cfg:         cfg,
-		store:       state.New(cfg.State.Directory),
-		lock:        lock.New(filepath.Join(cfg.State.Directory, "knaller.lock")),
-		storage:     storage.New(cfg),
-		collect:     capacity.Collect,
-		stopRuntime: jailer.Stop,
-		stopUnit:    stopSystemdUnit,
-		teardownNet: network.Teardown,
-		removeJail:  jailer.Remove,
-		removeAcct:  removeAccount,
+		cfg:              cfg,
+		store:            state.New(cfg.State.Directory),
+		lock:             lock.New(filepath.Join(cfg.State.Directory, "knaller.lock")),
+		storage:          store,
+		collect:          capacity.Collect,
+		ensureAcct:       ensureAccount,
+		ensureHost:       network.EnsureHost,
+		provisionStorage: defaultProvisionStorage(store),
+		startUnit:        startSystemdUnit,
+		waitReady:        waitSystemdActive,
+		stopRuntime:      jailer.Stop,
+		stopUnit:         stopSystemdUnit,
+		teardownNet:      network.Teardown,
+		removeJail:       jailer.Remove,
+		removeAcct:       removeAccount,
 	}
 }

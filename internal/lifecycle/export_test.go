@@ -10,6 +10,26 @@ func (m *Manager) SetCollectForTest(fn func(*config.Config) (capacity.Capacity, 
 	m.collect = fn
 }
 
+func (m *Manager) SetEnsureAcctForTest(fn func(name string, uid, gid int) error) {
+	m.ensureAcct = fn
+}
+
+func (m *Manager) SetEnsureHostForTest(fn func(*config.Config) error) {
+	m.ensureHost = fn
+}
+
+func (m *Manager) SetProvisionStorageForTest(fn func(state.Sandbox) error) {
+	m.provisionStorage = fn
+}
+
+func (m *Manager) SetStartUnitForTest(fn func(unit string) error) {
+	m.startUnit = fn
+}
+
+func (m *Manager) SetWaitReadyForTest(fn func(*config.Config, state.Sandbox) error) {
+	m.waitReady = fn
+}
+
 func (m *Manager) SetStopRuntimeForTest(fn func(*config.Config, state.Sandbox) error) {
 	m.stopRuntime = fn
 }
