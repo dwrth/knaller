@@ -10,6 +10,7 @@ import (
 	"github.com/dwrth/knaller/internal/allocate"
 	"github.com/dwrth/knaller/internal/capacity"
 	"github.com/dwrth/knaller/internal/config"
+	"github.com/dwrth/knaller/internal/lifecycle"
 	"github.com/dwrth/knaller/internal/scheduler"
 	"github.com/dwrth/knaller/internal/state"
 )
@@ -36,9 +37,11 @@ func run(args []string) int {
 		return runConfig(args[1:])
 	case "create":
 		return runCreate(args[1:])
+	case "delete":
+		return runDelete(args[1:])
 	case "network":
 		return runNetwork(args[1:])
-	case "list", "inspect", "start", "stop", "delete":
+	case "list", "inspect", "start", "stop":
 		fmt.Fprintf(os.Stderr, "knaller %s: not implemented yet\n", args[0])
 		return 1
 	default:
@@ -152,10 +155,6 @@ Flags:
 		fs.Usage()
 		return 2
 	}
-	if !*dryRun {
-		fmt.Fprintln(os.Stderr, "knaller create: only --dry-run is supported for now")
-		return 1
-	}
 
 	var cfg config.Config
 	if err := cfg.Load(*configPath); err != nil {
@@ -163,6 +162,33 @@ Flags:
 		return 1
 	}
 
+	if *dryRun {
+		return runCreateDryRun(&cfg, *name, *cpus, *memory)
+	}
+
+	sb, err := lifecycle.New(&cfg).Create(*name, *cpus, *memory)
+	if err != nil {
+		if errors.Is(err, lifecycle.ErrBusy) {
+			fmt.Fprintln(os.Stderr, "create: another mutation is in progress")
+			return 1
+		}
+		if errors.Is(err, lifecycle.ErrNameTaken) {
+			fmt.Fprintf(os.Stderr, "create: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "create: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(os.Stdout, "created %s (%s) slot %d\n", sb.ID, sb.Name, sb.Slot)
+	fmt.Fprintf(os.Stdout, "  uid/gid        %d/%d\n", sb.UID, sb.GID)
+	fmt.Fprintf(os.Stdout, "  vcpus/memory   %d / %d MiB\n", sb.VCPUs, sb.MemoryMiB)
+	fmt.Fprintf(os.Stdout, "  guest          %s  gw %s  subnet %s\n", sb.GuestIP, sb.GatewayIP, sb.GuestSubnet)
+	fmt.Fprintf(os.Stdout, "  desired/obs    %s / %s\n", sb.DesiredState, sb.ObservedState)
+	return 0
+}
+
+func runCreateDryRun(cfg *config.Config, name string, cpus, memory int) int {
 	store := state.New(cfg.State.Directory)
 	existing, err := store.List()
 	if err != nil {
@@ -170,18 +196,18 @@ Flags:
 		return 1
 	}
 
-	cap, err := capacity.Collect(&cfg)
+	cap, err := capacity.Collect(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to collect capacity: %v\n", err)
 		return 1
 	}
 
-	if err := scheduler.Admit(&cfg, cap, scheduler.Request{VCPUs: *cpus, MemoryMiB: *memory}); err != nil {
+	if err := scheduler.Admit(cfg, cap, scheduler.Request{VCPUs: cpus, MemoryMiB: memory}); err != nil {
 		fmt.Fprintf(os.Stderr, "admission denied: %v\n", err)
 		return 1
 	}
 
-	sandbox, err := allocate.Build(existing, &cfg, *name, *cpus, *memory)
+	sandbox, err := allocate.Build(existing, cfg, name, cpus, memory)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "allocation failed: %v\n", err)
 		return 1
@@ -193,6 +219,58 @@ Flags:
 	fmt.Fprintf(os.Stdout, "  guest          %s  gw %s  subnet %s\n", sandbox.GuestIP, sandbox.GatewayIP, sandbox.GuestSubnet)
 	fmt.Fprintf(os.Stdout, "  transit        host %s  ns %s  subnet %s\n", sandbox.TransitHostIP, sandbox.TransitNSIP, sandbox.TransitSubnet)
 	fmt.Fprintf(os.Stdout, "  netns/veth/tap %s  %s/%s  %s\n", sandbox.Namespace, sandbox.HostVeth, sandbox.NSVeth, sandbox.TAP)
+	return 0
+}
+
+func runDelete(args []string) int {
+	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `Usage: knaller delete [flags] <name|id>
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	configPath := fs.String("config", defaultConfigPath, "path to knaller config file")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "delete: sandbox name or id is required")
+		fs.Usage()
+		return 2
+	}
+	ref := fs.Arg(0)
+
+	var cfg config.Config
+	if err := cfg.Load(*configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load configuration: %v\n", err)
+		return 1
+	}
+
+	m := lifecycle.New(&cfg)
+	sb, err := m.Lookup(ref)
+	if err != nil {
+		if errors.Is(err, lifecycle.ErrNotFound) {
+			fmt.Fprintf(os.Stderr, "delete: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "delete: %v\n", err)
+		return 1
+	}
+	if err := m.Destroy(sb); err != nil {
+		if errors.Is(err, lifecycle.ErrBusy) {
+			fmt.Fprintln(os.Stderr, "delete: another mutation is in progress")
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "delete: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(os.Stdout, "deleted %s (%s)\n", sb.ID, sb.Name)
 	return 0
 }
 
