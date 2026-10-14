@@ -31,11 +31,12 @@ knaller delete <name>            # tear down sandbox and storage
 knaller config validate          # check /etc/knaller/config.yaml
 ```
 
-Creation examples (target):
+Creation examples:
 
 ```bash
 knaller create --name web-1 --cpus 2 --memory 512
 knaller create --name worker-1 --cpus 1 --memory 256
+knaller delete web-1
 ```
 
 Admission enforces strict RAM limits and configurable CPU overcommit.
@@ -87,8 +88,8 @@ systemd: knaller-host-network.service, knaller-network@.service, knaller@.servic
 Sandbox identity is a permanent ULID. Node-local slots (reused after
 state deletion) drive UID/GID, network namespaces, and `/30` guest/transit
 networks. Desired vs observed lifecycle state is persisted for recovery.
-A node-local flock guards mutating operations (CLI wiring comes with create).
-Jailer prepare/start/stop/remove and network setup/teardown are generic over
+A node-local flock guards mutating create/delete. Jailer
+prepare/start/stop/remove and network setup/teardown are generic over
 sandbox ID. Host install expects a built `knaller` binary
 (`go build -o build/artifacts/knaller ./cmd/knaller`).
 
@@ -106,7 +107,7 @@ sandbox ID. Host install expects a built `knaller` binary
 - [x] Runtime state / lifecycle foundations
 - [x] Generic jailer / supervision
 - [x] Generic networking / default isolation
-- [ ] create / delete with rollback
+- [x] create / delete with rollback
 - [ ] list / inspect / start / stop
 - [ ] Resource enforcement
 - [ ] doctor / reconcile
